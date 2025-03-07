@@ -20,7 +20,7 @@ public:
   Writer& writer();
   const Writer& writer() const;
 
-  void set_error() { error_ = true; }; // Signal that the stream suffered an error.
+  void set_error() { error_ = true; };       // Signal that the stream suffered an error.
   bool has_error() const { return error_; }; // Has the stream had an error?
 
 protected:
