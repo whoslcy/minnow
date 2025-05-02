@@ -6,29 +6,52 @@
 
 #include <cstdint>
 #include <functional>
-
-class Timer
+class Retransmitter
 {
+  // Absolute Sequence Number
+  using ASN = uint64_t;
+  using TransmitFunction = std::function<void( const TCPSenderMessage& )>;
+
 public:
-  void activate() { active_ = true; }
+  Retransmitter( const uint64_t initial_RTO_ms ) : initial_RTO_ms_( initial_RTO_ms ) {}
 
-  void deactivate() { active_ = false; }
-
-  void reset() { elapsed_milliseconds_ = 0; }
-
-  // An inactive timer doesn't tick.
-  void tick( uint64_t milliseconds )
+  void RecordSentMessage( const TCPSenderMessage& message )
   {
-    if ( active_ ) {
-      elapsed_milliseconds_ += milliseconds;
-    }
+    unacknowledged_.push_back( message );
+    timer_active_ = true;
   }
 
-  bool expired( uint64_t timeout ) const { return timeout <= elapsed_milliseconds_; }
+  void ResetTimer();
+
+  void TryDiscardAcknowledgedMessages( const ASN new_first_acceptable );
+
+  void Tick( const uint64_t ms_since_last_tick,
+             const TransmitFunction& transmit,
+             const ASN up_to_date_window_size );
+
+  // For testing: how many sequence numbers are outstanding?
+  uint64_t UnacknowledgedCount() const
+  {
+    ASN length { 0 };
+    std::for_each( unacknowledged_.cbegin(), unacknowledged_.cend(), [&length]( const TCPSenderMessage& message ) {
+      length += message.sequence_length();
+    } );
+    return length;
+  }
+
+  // For testing: how many consecutive retransmissions have happened?
+  uint64_t ConsecutiveRetransmissionCount() const { return consecutive_retransmission_count_; }
 
 private:
+  // Invariant: timer_active_ <=> (!unacknowledged_.empty())
+  std::deque<TCPSenderMessage> unacknowledged_ {};
+  bool timer_active_ { false };
   uint64_t elapsed_milliseconds_ { 0 };
-  bool active_ { false };
+  uint64_t initial_RTO_ms_ { 0 };
+  uint64_t consecutive_retransmission_count_ { 0 };
+
+  // Invariant: `first_unacknowledged_` <= `first_acceptable_`
+  ASN first_unacknowledged_ { 0 };
 };
 
 class TCPSender
@@ -36,7 +59,7 @@ class TCPSender
 public:
   /* Construct TCP sender with given default Retransmission Timeout and possible ISN */
   TCPSender( ByteStream&& input, Wrap32 isn, uint64_t initial_RTO_ms )
-    : input_( std::move( input ) ), isn_( isn ), initial_RTO_ms_( initial_RTO_ms )
+    : input_( std::move( input ) ), isn_( isn ), retransmitter_ { initial_RTO_ms }
   {}
 
   /* Generate an empty TCPSenderMessage */
@@ -89,16 +112,8 @@ private:
 
   ByteStream input_;
   Wrap32 isn_;
-  uint64_t initial_RTO_ms_;
-
   bool SYN_sent_ { false };
   bool FIN_sent_ { false };
-
-  // Below are data members for retransmission.
-
   std::optional<TCPReceiverMessage> up_to_date_receiver_message_ { std::nullopt };
-
-  std::deque<TCPSenderMessage> unacknowledged_ {};
-  Timer timer_ {};
-  uint64_t consecutive_retransmission_count_ { 0 };
+  Retransmitter retransmitter_;
 };

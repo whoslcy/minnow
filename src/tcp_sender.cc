@@ -4,7 +4,6 @@
 #include <optional>
 
 #include "byte_stream.hh"
-#include "debug.hh"
 #include "tcp_config.hh"
 #include "tcp_receiver_message.hh"
 #include "tcp_sender_message.hh"
@@ -14,19 +13,13 @@ using namespace std;
 // This function is for testing only; don't add extra state to support it.
 uint64_t TCPSender::sequence_numbers_in_flight() const
 {
-  ASN outstanding_bytes_count { 0 };
-  std::for_each( unacknowledged_.cbegin(),
-                 unacknowledged_.cend(),
-                 [&outstanding_bytes_count]( const TCPSenderMessage& message ) {
-                   outstanding_bytes_count += message.sequence_length();
-                 } );
-  return outstanding_bytes_count;
+  return retransmitter_.UnacknowledgedCount();
 }
 
 // This function is for testing only; don't add extra state to support it.
 uint64_t TCPSender::consecutive_retransmissions() const
 {
-  return consecutive_retransmission_count_;
+  return retransmitter_.ConsecutiveRetransmissionCount();
 }
 
 void TCPSender::push( const TransmitFunction& transmit )
@@ -63,8 +56,7 @@ void TCPSender::Send( const TransmitFunction& transmit, const TCPSenderMessage& 
     FIN_sent_ = true;
   }
   if ( message.sequence_length() ) {
-    unacknowledged_.push_back( message );
-    timer_.activate();
+    retransmitter_.RecordSentMessage( message );
   }
 }
 
@@ -120,45 +112,69 @@ void TCPSender::receive( const TCPReceiverMessage& msg )
 
   // The receiver has got new data.
 
-  timer_.reset();
-  consecutive_retransmission_count_ = 0;
+  retransmitter_.ResetTimer();
+  retransmitter_.TryDiscardAcknowledgedMessages( new_first_acceptable );
+}
 
+void TCPSender::tick( uint64_t ms_since_last_tick, const TransmitFunction& transmit )
+{
+  retransmitter_.Tick( ms_since_last_tick, transmit, UpToDateWindowSize() );
+}
+
+// Reset to 0
+// 1. elapsed milliseconds
+// 2. consecutive retransmission count
+void Retransmitter::ResetTimer()
+{
+  elapsed_milliseconds_ = 0;
+  consecutive_retransmission_count_ = 0;
+}
+
+void Retransmitter::TryDiscardAcknowledgedMessages( const ASN new_first_acceptable )
+{
+  ASN acknowledged_bytes_count { new_first_acceptable - first_unacknowledged_ };
   assert( !unacknowledged_.empty() );
   while ( true ) {
-    const TCPSenderMessage& earliest { unacknowledged_.front() };
-    const ASN after_final_byte_of_earliest_sender_message { earliest.seqno.unwrap( isn_, old_first_acceptable )
-                                                            + earliest.sequence_length() };
-    const bool earliest_segment_not_acknowledged { new_first_acceptable
-                                                   < after_final_byte_of_earliest_sender_message };
-    if ( earliest_segment_not_acknowledged ) {
+    const ASN earliest_length { unacknowledged_.front().sequence_length() };
+
+    const bool earliest_is_unacknowledged { acknowledged_bytes_count < earliest_length };
+    if ( earliest_is_unacknowledged ) {
       break;
     }
 
     // The earliest segment has been acknowledged.
+
+    first_unacknowledged_ += earliest_length;
+    acknowledged_bytes_count -= earliest_length;
     unacknowledged_.pop_front();
 
-    const bool all_sender_messages_are_acknowledged { unacknowledged_.empty() };
-    if ( all_sender_messages_are_acknowledged ) {
-      timer_.deactivate();
+    const bool all_are_acknowledged { unacknowledged_.empty() };
+    if ( all_are_acknowledged ) {
+      timer_active_ = false;
       break;
     }
   };
 }
 
-void TCPSender::tick( uint64_t ms_since_last_tick, const TransmitFunction& transmit )
+void Retransmitter::Tick( const uint64_t ms_since_last_tick,
+                          const TransmitFunction& transmit,
+                          const ASN up_to_date_window_size )
 {
-  timer_.tick( ms_since_last_tick );
+
+  if ( timer_active_ ) {
+    elapsed_milliseconds_ += ms_since_last_tick;
+  }
 
   // Exponential backoff.
   const uint64_t timeout { initial_RTO_ms_ * ( 1 << consecutive_retransmission_count_ ) };
 
-  if ( timer_.expired( timeout ) ) {
+  if ( timeout <= elapsed_milliseconds_ ) {
     assert( !unacknowledged_.empty() );
     transmit( unacknowledged_.front() );
-    timer_.activate();
-    timer_.reset();
+    timer_active_ = true;
+    elapsed_milliseconds_ = 0;
 
-    if ( UpToDateWindowSize() ) {
+    if ( up_to_date_window_size ) {
       ++consecutive_retransmission_count_;
     }
   }
