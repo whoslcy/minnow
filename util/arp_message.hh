@@ -3,9 +3,10 @@
 #include "ethernet_header.hh"
 #include "ipv4_header.hh"
 #include "parser.hh"
+#include "serializable.hh"
 
 // [ARP](\ref rfc::rfc826) message
-struct ARPMessage
+struct ARPMessage : Serializable
 {
   static constexpr size_t LENGTH = 28;         // ARP message length in bytes
   static constexpr uint16_t TYPE_ETHERNET = 1; // ARP type for Ethernet/Wi-Fi as link-layer protocol

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <string>
 #include <string_view>
 
@@ -12,7 +13,8 @@ class ByteStream
 public:
   explicit ByteStream( uint64_t capacity );
 
-  // Helper functions (provided) to access the ByteStream's Reader and Writer interfaces
+  // Helper functions (provided) to access the ByteStream's Reader and Writer
+  // interfaces
   Reader& reader();
   const Reader& reader() const;
   Writer& writer();
@@ -22,16 +24,30 @@ public:
   bool has_error() const { return error_; }; // Has the stream had an error?
 
 protected:
-  // Please add any additional state to the ByteStream here, and not to the Writer and Reader interfaces.
+  void TestError()
+  {
+    if ( capacity_ < buffer_.size() ) {
+      set_error();
+    }
+  }
+
+  // Please add any additional state to the ByteStream here, and not to the
+  // Writer and Reader interfaces.
+  std::string buffer_ {};
   uint64_t capacity_;
-  bool error_ {};
+  bool error_ { false };
+  bool refuse_new_data_ { false };
+  uint64_t pushed_bytes_count_ { 0 };
+  uint64_t popped_bytes_count_ { 0 };
 };
 
 class Writer : public ByteStream
 {
 public:
-  void push( std::string data ); // Push data to stream, but only as much as available capacity allows.
-  void close();                  // Signal that the stream has reached its ending. Nothing more will be written.
+  void push( std::string data ); // Push data to stream, but only as much as
+  // available capacity allows.
+  void close(); // Signal that the stream has reached its ending. Nothing more
+  // will be written.
 
   bool is_closed() const;              // Has the stream been closed?
   uint64_t available_capacity() const; // How many bytes can be pushed to the stream right now?

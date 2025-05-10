@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
+#include <optional>
 
 /*
  * The Wrap32 type represents a 32-bit unsigned integer that:
@@ -13,15 +15,18 @@ class Wrap32
 public:
   explicit Wrap32( uint32_t raw_value ) : raw_value_( raw_value ) {}
 
-  /* Construct a Wrap32 given an absolute sequence number n and the zero point. */
+  /* Construct a Wrap32 given an absolute sequence number n and the zero point.
+   */
   static Wrap32 wrap( uint64_t n, Wrap32 zero_point );
 
   /*
-   * The unwrap method returns an absolute sequence number that wraps to this Wrap32, given the zero point
-   * and a "checkpoint": another absolute sequence number near the desired answer.
+   * The unwrap method returns an absolute sequence number that wraps to this
+   * Wrap32, given the zero point and a "checkpoint": another absolute sequence
+   * number near the desired answer.
    *
-   * There are many possible absolute sequence numbers that all wrap to the same Wrap32.
-   * The unwrap method should return the one that is closest to the checkpoint.
+   * There are many possible absolute sequence numbers that all wrap to the same
+   * Wrap32. The unwrap method should return the one that is closest to the
+   * checkpoint.
    */
   uint64_t unwrap( Wrap32 zero_point, uint64_t checkpoint ) const;
 
@@ -30,4 +35,7 @@ public:
 
 protected:
   uint32_t raw_value_ {};
+
+private:
+  uint64_t Unsigned64Distance( uint64_t a, uint64_t b ) const { return a < b ? b - a : a - b; }
 };
