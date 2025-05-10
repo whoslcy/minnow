@@ -1,11 +1,57 @@
 #pragma once
 
+#include <cstddef>
+#include <map>
+#include <memory>
+#include <optional>
+#include <queue>
+
 #include "address.hh"
 #include "ethernet_frame.hh"
+#include "ethernet_header.hh"
 #include "ipv4_datagram.hh"
+#include "serializable.hh"
 
-#include <memory>
-#include <queue>
+// Address Resolution Protocol
+class ArpTable
+{
+  using IPv4Numeric = uint32_t;
+
+public:
+  std::optional<EthernetAddress> Query( const IPv4Numeric ipv4_numeric ) const
+  {
+    const auto search = arp_table_.find( ipv4_numeric );
+    if ( search != arp_table_.end() ) {
+      return search->second.ethernet_address;
+    }
+    return std::nullopt;
+  }
+
+  void Add( const IPv4Numeric ipv4_numeric, const EthernetAddress ethernet_address )
+  {
+    arp_table_[ipv4_numeric] = { ethernet_address, 0 };
+  }
+
+  void Tick( const size_t ms_since_last_tick )
+  {
+    // 30 seconds.
+    constexpr size_t kAddressDuration { 30000 };
+
+    for ( auto& [ip, entry] : arp_table_ ) {
+      entry.timer += ms_since_last_tick;
+    }
+    std::erase_if( arp_table_, [&]( const auto& entry ) { return kAddressDuration < entry.second.timer; } );
+  }
+
+private:
+  struct EthernetAddressWithTimer
+  {
+    EthernetAddress ethernet_address;
+    size_t timer;
+  };
+
+  std::map<IPv4Numeric, EthernetAddressWithTimer> arp_table_ {};
+};
 
 // A "network interface" that connects IP (the internet layer, or network layer)
 // with Ethernet (the network access layer, or link layer).
@@ -67,6 +113,31 @@ public:
   std::queue<InternetDatagram>& datagrams_received() { return datagrams_received_; }
 
 private:
+  using IPv4Numeric = uint32_t;
+  using Timer = size_t;
+
+  struct DirectionlessDatagramWithArpRequestTimer
+  {
+    InternetDatagram datagram;
+    size_t arp_request_timer { 0 };
+
+    DirectionlessDatagramWithArpRequestTimer( const InternetDatagram internet_datagram )
+      : datagram { internet_datagram }
+    {}
+  };
+
+  void SendFrame( const Serializable& data, EthernetAddress target, uint16_t frame_type ) const;
+
+  void SendArpReply( EthernetAddress target_ethernet_address, IPv4Numeric target_ipv4_numeric ) const;
+
+  void BroadcastArpRequest( uint32_t unknown_ip_address ) const;
+
+  std::map<IPv4Numeric, std::deque<DirectionlessDatagramWithArpRequestTimer>> unroutable_datagrams_ {};
+
+  std::map<IPv4Numeric, Timer> sent_arp_requests_ {};
+
+  ArpTable arp_table_ {};
+
   // Human-readable name of the interface
   std::string name_;
 

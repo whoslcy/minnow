@@ -1,17 +1,24 @@
 #pragma once
 
-#include "ipv4_header.hh"
-#include "parser.hh"
-#include "ref.hh"
-
 #include <string>
 #include <vector>
 
+#include "ipv4_header.hh"
+#include "parser.hh"
+#include "ref.hh"
+#include "serializable.hh"
+
 //! \brief [IPv4](\ref rfc::rfc791) Internet datagram
-struct IPv4Datagram
+struct IPv4Datagram : Serializable
 {
   IPv4Header header {};
   std::vector<Ref<std::string>> payload {};
+
+  IPv4Datagram() = default;
+
+  IPv4Datagram( const IPv4Header& ipv4_header, std::vector<Ref<std::string>> datagram_payload )
+    : header { ipv4_header }, payload { std::move( datagram_payload ) }
+  {}
 
   void parse( Parser& parser )
   {
