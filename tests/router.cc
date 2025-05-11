@@ -155,7 +155,15 @@ class Network
 private:
   Router _router {};
 
-  vector<shared_ptr<NetworkSegment>> segments_ { 6, make_shared<NetworkSegment>() };
+  vector<shared_ptr<NetworkSegment>> segments_ { [] {
+    vector<shared_ptr<NetworkSegment>> segments;
+    constexpr int kSegmentCount { 6 };
+    segments.reserve( kSegmentCount );
+    for ( int i = 0; i < kSegmentCount; ++i ) {
+      segments.push_back( make_shared<NetworkSegment>() );
+    }
+    return segments;
+  }() };
 
   shared_ptr<NetworkSegment> upstream { segments_.at( 0 ) };
   shared_ptr<NetworkSegment> eth0_applesauce { segments_.at( 1 ) };

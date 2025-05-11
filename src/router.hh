@@ -1,9 +1,11 @@
 #pragma once
 
+#include <array>
+#include <map>
+#include <optional>
+
 #include "exception.hh"
 #include "network_interface.hh"
-
-#include <optional>
 
 // \brief A router that has multiple network interfaces and
 // performs longest-prefix-match routing between them.
@@ -32,6 +34,24 @@ public:
   void route();
 
 private:
+  struct RouteDestination
+  {
+    std::optional<Address> next_hop;
+    size_t interface_num;
+  };
+
+  uint32_t Prefix( uint32_t ipv4_numeric, uint8_t prefix_length ) const
+  {
+    return prefix_length ? ipv4_numeric >> ( 32 - prefix_length ) : 0;
+  }
+
+  void Forward( InternetDatagram& datagram );
+
+  // Prefix lengths: [0, 32]
+  static constexpr size_t kCountOfPrefixLength = 33;
+
+  std::array<std::map<uint32_t, RouteDestination>, kCountOfPrefixLength> routing_table_ {};
+
   // The router's collection of network interfaces
   std::vector<std::shared_ptr<NetworkInterface>> interfaces_ {};
 };
